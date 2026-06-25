@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nexus Revenue Recovery Agent</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Nexus portfolio prototype</p>
+        <h1>Revenue Recovery Agent</h1>
+      </div>
+      <div class="header-right">
+        <span id="emailMode" class="email-mode" title="Email sending mode">checking…</span>
+        <div class="header-metric">
+          <span id="headerRecovered">$0</span>
+          <small>recovered</small>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Primary">
+      <button class="tab active" data-tab="leakage">Leakage</button>
+      <button class="tab" data-tab="voice">Voice Agent</button>
+      <button class="tab" data-tab="outcomes">Outcomes</button>
+    </nav>
+
+    <main>
+      <section id="tab-leakage" class="tab-panel active" aria-labelledby="Leakage">
+        <div class="section-heading">
+          <div>
+            <h2>Revenue Leakage Dashboard</h2>
+            <p>Prioritized opportunities at risk across consumer, education, services, and B2B brands.</p>
+          </div>
+          <div class="heading-actions">
+            <button id="autopilotBtn">▶ Run Autopilot</button>
+            <button id="approveAllBtn" class="secondary" hidden>Approve &amp; send all</button>
+            <button id="injectLeadBtn" class="secondary">+ Lead</button>
+            <button id="refreshBtn" class="secondary">Refresh</button>
+          </div>
+        </div>
+
+        <div class="scheduler-bar">
+          <div class="scheduler-left">
+            <span class="sched-dot" id="schedDot"></span>
+            <strong>Auto-pilot scheduler</strong>
+            <span id="schedStatus" class="sched-status">off</span>
+          </div>
+          <div class="scheduler-controls">
+            <label>Every
+              <select id="schedInterval">
+                <option value="30">30s</option>
+                <option value="60" selected>1m</option>
+                <option value="300">5m</option>
+                <option value="900">15m</option>
+              </select>
+            </label>
+            <label class="sched-leads"><input type="checkbox" id="schedLeads" checked /> ingest new leads</label>
+            <button id="schedToggleBtn">Start</button>
+          </div>
+        </div>
+
+        <div id="autopilotPanel" class="autopilot-panel" hidden>
+          <div class="autopilot-head">
+            <strong>🤖 Autopilot</strong>
+            <small>The agent sends recovery emails, runs calls, and chases non-responders on its own. Run it again to fire the next round of follow-ups; risky plays wait in the approval queue.</small>
+          </div>
+          <div id="autopilotLog" class="autopilot-log"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Segment</th>
+                <th>Signal</th>
+                <th>Value</th>
+                <th>Status</th>
+                <th class="col-action">Action</th>
+              </tr>
+            </thead>
+            <tbody id="opportunitiesBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-voice" class="tab-panel" aria-labelledby="Voice Agent">
+        <div class="section-heading">
+          <div>
+            <h2>Live Recovery Calls</h2>
+            <p>Calls run on their own in the background. Open this tab to watch any of them live — audio plays only while you're here.</p>
+          </div>
+          <div class="voice-launch">
+            <select id="voiceOpportunity"></select>
+            <button id="startCallBtn">Start a call</button>
+          </div>
+        </div>
+
+        <div class="voice-layout">
+          <div class="calls-list-panel">
+            <h3>Calls</h3>
+            <div id="callsList" class="calls-list"></div>
+          </div>
+          <div class="transcript">
+            <div class="call-target">
+              <div>
+                <span id="voiceCompany">No call selected</span>
+                <strong id="voiceProduct"></strong>
+              </div>
+              <span id="voiceStatus" class="status-pill">idle</span>
+            </div>
+            <div id="transcriptLog" class="transcript-log">
+              <p class="transcript-empty">No call selected. Start one above, or turn on the scheduler and calls will appear here.</p>
+            </div>
+            <div id="callSummary" class="summary"></div>
+            <div class="voice-settings">
+              <label for="voiceSelect">Voice</label>
+              <select id="voiceSelect" title="Natural voices are marked ✦"></select>
+              <label class="mute-toggle">
+                <input type="checkbox" id="muteToggle" /> Mute
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-outcomes" class="tab-panel" aria-labelledby="Outcomes">
+        <div class="section-heading">
+          <div>
+            <h2>Outcome Dashboard</h2>
+            <p>Recovered dollars, contact progress, and audit trail from agent actions.</p>
+          </div>
+          <button id="metricsRefreshBtn" class="secondary">Refresh metrics</button>
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card"><span id="metricRecovered">$0</span><small>Recovered revenue</small></div>
+          <div class="metric-card"><span id="metricRisk">$0</span><small>Total at risk</small></div>
+          <div class="metric-card"><span id="metricContacted">0</span><small>Contacted</small></div>
+          <div class="metric-card"><span id="metricConversion">0%</span><small>Conversion rate</small></div>
+        </div>
+        <div class="outcome-grid">
+          <div class="chart-panel">
+            <h3>Recovered by Segment</h3>
+            <canvas id="segmentChart" width="720" height="320"></canvas>
+          </div>
+          <div class="events-panel">
+            <h3>Audit Trail</h3>
+            <div id="eventsList" class="events-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <template id="detailTemplate">
+      <tr class="detail-row">
+        <td colspan="6">
+          <div class="agent-detail"></div>
+        </td>
+      </tr>
+    </template>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

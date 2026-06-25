@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: nexus-revenue-recovery
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/config
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Agent reasoning. Set OPENAI_API_KEY in the Render dashboard (do NOT commit it).
+      # With no key, the app falls back to its built-in scripted responses.
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_API_KEY
+        sync: false
+      # Email. Leave disabled to simulate sends; set true + Gmail creds to send for real.
+      - key: EMAIL_ENABLED
+        value: "false"
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: FOLLOWUP_MAX_TOUCHES
+        value: "4"
+      - key: CALL_TURN_DELAY_MS
+        value: "3500"
