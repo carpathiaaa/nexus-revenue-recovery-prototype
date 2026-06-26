@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "stop": "npx --yes kill-port 3000",
     "seed": "node scripts/seed.js",
     "test:llm": "node scripts/test-llm.js"
   },

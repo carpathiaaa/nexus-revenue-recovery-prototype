@@ -853,7 +853,7 @@ function isVoiceAudible() {
 // ---- Live call watching ------------------------------------------------------
 // Calls run server-side as pods. Here we just poll and render them — like
 // watching a live feed. We never drive the conversation from the browser.
-const voiceWatch = { selectedId: null, processedTurns: 0, poll: null, listSig: "" };
+const voiceWatch = { selectedId: null, processedTurns: 0, speakFromStart: false, poll: null, listSig: "" };
 
 // Highlight the selected call without rebuilding the list (instant, no flicker).
 function highlightSelectedCall() {
@@ -907,11 +907,15 @@ async function loadCalls() {
   }
 }
 
-function selectCall(id) {
+// speakFromStart=true means we kicked off this call ourselves and want to hear
+// it from the opening line. The default (false) is "join live": render the
+// backlog silently and only voice turns that arrive from now on.
+function selectCall(id, speakFromStart = false) {
   id = Number(id);
   if (voiceWatch.selectedId === id) return;
   voiceWatch.selectedId = id;
   voiceWatch.processedTurns = 0;
+  voiceWatch.speakFromStart = speakFromStart;
   stopSpeaking();
   els.transcriptLog.innerHTML = "";
   els.callSummary.textContent = "";
@@ -939,13 +943,16 @@ async function refreshSelectedCall(initial = false) {
   // Backlog (opening a call or one that's already over) and silent watching just
   // render the text. Live turns we're actually listening to are handed to the
   // queue, which renders each bubble in lockstep with its voice.
-  const silent = initial || pod.status !== "live" || !isVoiceAudible();
+  // Silence the initial batch only when we're *joining* a call — for one we just
+  // started (speakFromStart) the opening line should be voiced like any other.
+  const silent = (initial && !voiceWatch.speakFromStart) || pod.status !== "live" || !isVoiceAudible();
   for (let i = voiceWatch.processedTurns; i < pod.turns.length; i += 1) {
     const turn = pod.turns[i];
     if (silent) appendTranscriptTurn(turn.role, turn.text);
     else enqueueTurn(turn.role === "agent" ? "agent" : "customer", turn.text);
   }
   voiceWatch.processedTurns = pod.turns.length;
+  if (initial) voiceWatch.speakFromStart = false; // one-shot: don't replay on later refreshes
 
   els.callSummary.textContent = pod.status === "ended" && pod.summary ? `Outcome: ${pod.outcome} — ${pod.summary}` : "";
 }
@@ -978,9 +985,11 @@ async function startCallManual() {
   els.startCallBtn.disabled = true;
   try {
     await api(`/api/calls/${id}/start`, { method: "POST" });
-    voiceWatch.selectedId = null; // force re-select onto the new call
+    // Select first (with speakFromStart) so loadCalls's auto-select doesn't grab
+    // it silently; then refresh the list with the selection already in place.
+    voiceWatch.selectedId = null; // force a clean re-select onto the new call
+    selectCall(id, true);
     await loadCalls();
-    selectCall(id);
     toast("Call started — watching live", "success");
   } catch (error) {
     toast(error.message, "error");
