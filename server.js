@@ -17,6 +17,7 @@ const { actOnOpportunity, runAutopilot, approveAndSendAll, MAX_TOUCHES } = requi
 const scheduler = require("./lib/scheduler");
 const { generateLead } = require("./lib/leadgen");
 const { startPod, stopPod, getPod, listPods } = require("./lib/callpods");
+const voice = require("./lib/voice");
 const { seedIfEmpty } = require("./lib/seedData");
 
 const { EMPATHY_OVERRIDE } = require("./lib/prompts");
@@ -136,6 +137,25 @@ app.post("/api/voice/turn", async (req, res, next) => {
       )
     });
     res.json({ agentText: String(line).trim() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Text-to-speech proxy. The browser hits this with the line to speak and a voice
+// role; we render it through ElevenLabs server-side and stream back the MP3. The
+// API key never leaves the server. Audio is cached per (voice, text) in the lib.
+app.get("/api/tts/config", (req, res) => res.json({ enabled: voice.isEnabled() }));
+
+app.get("/api/tts", async (req, res, next) => {
+  try {
+    if (!voice.isEnabled()) return res.status(503).json({ error: "Voice not configured" });
+    const text = req.query.text;
+    const role = req.query.voice || "agent";
+    const audio = await voice.synthesize(text, role);
+    res.set("Content-Type", "audio/mpeg");
+    res.set("Cache-Control", "public, max-age=86400");
+    res.send(audio);
   } catch (error) {
     next(error);
   }
