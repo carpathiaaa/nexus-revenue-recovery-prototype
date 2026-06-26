@@ -647,13 +647,15 @@ const voiceEngine = { voices: [], agent: null, customer: null, rate: 1, ready: f
 // browser speechSynthesis path below stays as a graceful fallback. The agent
 // voice is user-selectable from a curated set of premade ElevenLabs voices; the
 // customer keeps the server's default so the two sides sound distinct.
-const eleven = { enabled: false, agentVoice: "21m00Tcm4TlvDq8ikWAM" };
+const eleven = { enabled: false, agentVoice: "cjVigY5qzO86Huf0OWal" };
+// Modern conversational voices — the most human-sounding of the default library.
 const ELEVEN_VOICES = [
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel — warm" },
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah — soft" },
-  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam — casual" },
-  { id: "ErXwobaYiN019PkySvjV", name: "Antoni — calm" },
-  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh — friendly" }
+  { id: "cjVigY5qzO86Huf0OWal", name: "Eric — smooth, trustworthy" },
+  { id: "cgSgspJ2msm6clMCkdW9", name: "Jessica — warm, bright" },
+  { id: "iP95p4xoKVk53GoZ742B", name: "Chris — charming, casual" },
+  { id: "bIHbv24MWmeRgasZH58o", name: "Will — relaxed" },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah — reassuring" },
+  { id: "SAz9YHcvj6GT2YYXdXww", name: "River — neutral, calm" }
 ];
 
 async function loadElevenConfig() {
