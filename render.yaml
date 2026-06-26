@@ -34,7 +34,7 @@ services:
       - key: ELEVENLABS_API
         sync: false
       - key: ELEVENLABS_MODEL
-        value: eleven_multilingual_v2
+        value: eleven_turbo_v2_5
       - key: ELEVENLABS_VOICE_AGENT
         value: cjVigY5qzO86Huf0OWal
       - key: ELEVENLABS_VOICE_CUSTOMER

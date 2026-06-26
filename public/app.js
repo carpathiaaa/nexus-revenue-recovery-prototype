@@ -756,10 +756,20 @@ const speakQueue = [];
 let speaking = false;
 let currentAudio = null; // the <audio> currently playing an ElevenLabs clip
 
-function enqueueSpeak(text, role) {
-  if (els.muteToggle?.checked || !text) return;
-  if (!eleven.enabled && !("speechSynthesis" in window)) return;
-  speakQueue.push({ text, role });
+// Enqueue a LIVE turn so its transcript bubble and its voice land together. We
+// pre-create the ElevenLabs audio right now so it downloads while earlier turns
+// are still playing — that pipelining is what hides the model's generation
+// latency and keeps the caption in sync with the voice.
+function enqueueTurn(role, text) {
+  if (!text) return;
+  const item = { role, text, audio: null };
+  if (eleven.enabled && !els.muteToggle?.checked) {
+    const voiceParam = role === "agent" ? eleven.agentVoice : "customer";
+    item.audio = new Audio(`/api/tts?voice=${encodeURIComponent(voiceParam)}&text=${encodeURIComponent(text)}`);
+    item.audio.preload = "auto";
+    item.audio.playbackRate = voiceEngine.rate;
+  }
+  speakQueue.push(item);
   if (!speaking) drainSpeakQueue();
 }
 
@@ -769,41 +779,44 @@ function drainSpeakQueue() {
     return;
   }
   speaking = true;
-  const { text, role } = speakQueue.shift();
-  if (eleven.enabled) {
-    playEleven(text, role);
-  } else {
-    speakBrowser(text, role);
-  }
+  const item = speakQueue.shift();
+  if (item.audio) playItemEleven(item);
+  else playItemBrowser(item, false);
 }
 
-// Stream one line from our ElevenLabs proxy and play it. On any failure we fall
-// back to the browser voice so a call never goes silent mid-conversation.
-function playEleven(text, role) {
-  const voiceParam = role === "agent" ? eleven.agentVoice : "customer";
-  const url = `/api/tts?voice=${encodeURIComponent(voiceParam)}&text=${encodeURIComponent(text)}`;
-  const audio = new Audio(url);
+// Play a turn's ElevenLabs clip, rendering its bubble the instant the voice
+// actually starts. On any failure we render anyway and fall back to the browser
+// voice so a call never goes silent or loses a line.
+function playItemEleven(item) {
+  const audio = item.audio;
   currentAudio = audio;
-  audio.playbackRate = voiceEngine.rate;
+  let shown = false;
+  const show = () => {
+    if (shown) return;
+    shown = true;
+    appendTranscriptTurn(item.role, item.text);
+  };
   const next = () => {
     if (currentAudio === audio) currentAudio = null;
     drainSpeakQueue();
   };
+  audio.onplaying = show; // caption appears exactly when the voice begins
   audio.onended = next;
   audio.onerror = () => {
     if (currentAudio === audio) currentAudio = null;
-    speakBrowser(text, role); // graceful fallback for this one line
+    playItemBrowser(item, shown); // fall back without dropping the line
   };
-  audio.play().catch(() => speakBrowser(text, role));
+  audio.play().then(show).catch(() => playItemBrowser(item, shown));
 }
 
-function speakBrowser(text, role) {
-  if (!("speechSynthesis" in window)) {
+function playItemBrowser(item, alreadyShown) {
+  if (!alreadyShown) appendTranscriptTurn(item.role, item.text);
+  if (!("speechSynthesis" in window) || els.muteToggle?.checked) {
     drainSpeakQueue();
     return;
   }
-  const utterance = new SpeechSynthesisUtterance(text);
-  const voice = role === "agent" ? voiceEngine.agent : voiceEngine.customer;
+  const utterance = new SpeechSynthesisUtterance(item.text);
+  const voice = item.role === "agent" ? voiceEngine.agent : voiceEngine.customer;
   if (voice) utterance.voice = voice;
   utterance.rate = voiceEngine.rate;
   utterance.onend = drainSpeakQueue;
@@ -812,6 +825,9 @@ function speakBrowser(text, role) {
 }
 
 function stopSpeaking() {
+  for (const item of speakQueue) {
+    if (item.audio) item.audio.pause();
+  }
   speakQueue.length = 0;
   speaking = false;
   if (currentAudio) {
@@ -837,7 +853,7 @@ function isVoiceAudible() {
 // ---- Live call watching ------------------------------------------------------
 // Calls run server-side as pods. Here we just poll and render them — like
 // watching a live feed. We never drive the conversation from the browser.
-const voiceWatch = { selectedId: null, renderedTurns: 0, spokenTurns: 0, poll: null, listSig: "" };
+const voiceWatch = { selectedId: null, processedTurns: 0, poll: null, listSig: "" };
 
 // Highlight the selected call without rebuilding the list (instant, no flicker).
 function highlightSelectedCall() {
@@ -895,8 +911,7 @@ function selectCall(id) {
   id = Number(id);
   if (voiceWatch.selectedId === id) return;
   voiceWatch.selectedId = id;
-  voiceWatch.renderedTurns = 0;
-  voiceWatch.spokenTurns = 0;
+  voiceWatch.processedTurns = 0;
   stopSpeaking();
   els.transcriptLog.innerHTML = "";
   els.callSummary.textContent = "";
@@ -921,22 +936,16 @@ async function refreshSelectedCall(initial = false) {
   const live = pod.status === "live";
   setVoiceStatus(live ? "● live" : pod.outcome || "ended", live ? "contacted" : pod.outcome || "");
 
-  for (let i = voiceWatch.renderedTurns; i < pod.turns.length; i += 1) {
-    appendTranscriptTurn(pod.turns[i].role, pod.turns[i].text);
+  // Backlog (opening a call or one that's already over) and silent watching just
+  // render the text. Live turns we're actually listening to are handed to the
+  // queue, which renders each bubble in lockstep with its voice.
+  const silent = initial || pod.status !== "live" || !isVoiceAudible();
+  for (let i = voiceWatch.processedTurns; i < pod.turns.length; i += 1) {
+    const turn = pod.turns[i];
+    if (silent) appendTranscriptTurn(turn.role, turn.text);
+    else enqueueTurn(turn.role === "agent" ? "agent" : "customer", turn.text);
   }
-  voiceWatch.renderedTurns = pod.turns.length;
-
-  if (initial || pod.status !== "live") {
-    // Opening a call, or a call that's already over: show it, never replay audio.
-    voiceWatch.spokenTurns = pod.turns.length;
-  } else if (isVoiceAudible()) {
-    for (let i = voiceWatch.spokenTurns; i < pod.turns.length; i += 1) {
-      enqueueSpeak(pod.turns[i].text, pod.turns[i].role === "agent" ? "agent" : "customer");
-    }
-    voiceWatch.spokenTurns = pod.turns.length;
-  } else {
-    voiceWatch.spokenTurns = pod.turns.length; // caught up without speaking
-  }
+  voiceWatch.processedTurns = pod.turns.length;
 
   els.callSummary.textContent = pod.status === "ended" && pod.summary ? `Outcome: ${pod.outcome} — ${pod.summary}` : "";
 }
