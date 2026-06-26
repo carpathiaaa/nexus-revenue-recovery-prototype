@@ -29,3 +29,13 @@ services:
         value: "4"
       - key: CALL_TURN_DELAY_MS
         value: "3500"
+      # Voice. Set ELEVENLABS_API in the Render dashboard (do NOT commit it). With
+      # no key, calls fall back to the browser's robotic speechSynthesis voices.
+      - key: ELEVENLABS_API
+        sync: false
+      - key: ELEVENLABS_MODEL
+        value: eleven_multilingual_v2
+      - key: ELEVENLABS_VOICE_AGENT
+        value: cjVigY5qzO86Huf0OWal
+      - key: ELEVENLABS_VOICE_CUSTOMER
+        value: cgSgspJ2msm6clMCkdW9
