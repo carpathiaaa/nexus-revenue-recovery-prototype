@@ -643,6 +643,29 @@ function appendTranscriptTurn(role, text) {
 // give the agent and the (simulated) customer two distinct voices.
 const voiceEngine = { voices: [], agent: null, customer: null, rate: 1, ready: false };
 
+// ElevenLabs is the primary voice when the server has a key configured; the
+// browser speechSynthesis path below stays as a graceful fallback. The agent
+// voice is user-selectable from a curated set of premade ElevenLabs voices; the
+// customer keeps the server's default so the two sides sound distinct.
+const eleven = { enabled: false, agentVoice: "21m00Tcm4TlvDq8ikWAM" };
+const ELEVEN_VOICES = [
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel — warm" },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah — soft" },
+  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam — casual" },
+  { id: "ErXwobaYiN019PkySvjV", name: "Antoni — calm" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh — friendly" }
+];
+
+async function loadElevenConfig() {
+  try {
+    const cfg = await api("/api/tts/config");
+    eleven.enabled = Boolean(cfg.enabled);
+  } catch {
+    eleven.enabled = false;
+  }
+  if (eleven.enabled) populateVoicePicker();
+}
+
 function rankVoice(v) {
   const n = `${v.name} ${v.voiceURI}`.toLowerCase();
   let score = 0;
@@ -671,6 +694,13 @@ function loadVoices() {
 
 function populateVoicePicker() {
   if (!els.voiceSelect) return;
+  // When ElevenLabs is live, the picker chooses the agent's ElevenLabs voice.
+  if (eleven.enabled) {
+    els.voiceSelect.innerHTML = ELEVEN_VOICES.map(
+      (v) => `<option value="${v.id}"${v.id === eleven.agentVoice ? " selected" : ""}>${escapeHtml(v.name)}</option>`
+    ).join("");
+    return;
+  }
   const current = voiceEngine.agent?.name;
   els.voiceSelect.innerHTML = voiceEngine.voices
     .map((v) => {
@@ -718,12 +748,16 @@ function setVoiceStatus(text, kind = "") {
 // ---- Speech queue ------------------------------------------------------------
 // Speak turns one after another (never overlapping) and, crucially, stop all
 // audio the moment the user leaves the tab so nothing leaks in the background.
+// Each item carries a role ("agent"/"customer"); the voice is resolved at play
+// time so the same queue works for both ElevenLabs and the browser fallback.
 const speakQueue = [];
 let speaking = false;
+let currentAudio = null; // the <audio> currently playing an ElevenLabs clip
 
-function enqueueSpeak(text, voice) {
-  if (els.muteToggle?.checked || !("speechSynthesis" in window) || !text) return;
-  speakQueue.push({ text, voice });
+function enqueueSpeak(text, role) {
+  if (els.muteToggle?.checked || !text) return;
+  if (!eleven.enabled && !("speechSynthesis" in window)) return;
+  speakQueue.push({ text, role });
   if (!speaking) drainSpeakQueue();
 }
 
@@ -733,8 +767,41 @@ function drainSpeakQueue() {
     return;
   }
   speaking = true;
-  const { text, voice } = speakQueue.shift();
+  const { text, role } = speakQueue.shift();
+  if (eleven.enabled) {
+    playEleven(text, role);
+  } else {
+    speakBrowser(text, role);
+  }
+}
+
+// Stream one line from our ElevenLabs proxy and play it. On any failure we fall
+// back to the browser voice so a call never goes silent mid-conversation.
+function playEleven(text, role) {
+  const voiceParam = role === "agent" ? eleven.agentVoice : "customer";
+  const url = `/api/tts?voice=${encodeURIComponent(voiceParam)}&text=${encodeURIComponent(text)}`;
+  const audio = new Audio(url);
+  currentAudio = audio;
+  audio.playbackRate = voiceEngine.rate;
+  const next = () => {
+    if (currentAudio === audio) currentAudio = null;
+    drainSpeakQueue();
+  };
+  audio.onended = next;
+  audio.onerror = () => {
+    if (currentAudio === audio) currentAudio = null;
+    speakBrowser(text, role); // graceful fallback for this one line
+  };
+  audio.play().catch(() => speakBrowser(text, role));
+}
+
+function speakBrowser(text, role) {
+  if (!("speechSynthesis" in window)) {
+    drainSpeakQueue();
+    return;
+  }
   const utterance = new SpeechSynthesisUtterance(text);
+  const voice = role === "agent" ? voiceEngine.agent : voiceEngine.customer;
   if (voice) utterance.voice = voice;
   utterance.rate = voiceEngine.rate;
   utterance.onend = drainSpeakQueue;
@@ -745,6 +812,10 @@ function drainSpeakQueue() {
 function stopSpeaking() {
   speakQueue.length = 0;
   speaking = false;
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
 
@@ -858,7 +929,7 @@ async function refreshSelectedCall(initial = false) {
     voiceWatch.spokenTurns = pod.turns.length;
   } else if (isVoiceAudible()) {
     for (let i = voiceWatch.spokenTurns; i < pod.turns.length; i += 1) {
-      enqueueSpeak(pod.turns[i].text, pod.turns[i].role === "agent" ? voiceEngine.agent : voiceEngine.customer);
+      enqueueSpeak(pod.turns[i].text, pod.turns[i].role === "agent" ? "agent" : "customer");
     }
     voiceWatch.spokenTurns = pod.turns.length;
   } else {
@@ -965,6 +1036,10 @@ els.approveAllBtn.addEventListener("click", approveAll);
 els.injectLeadBtn.addEventListener("click", injectLead);
 els.schedToggleBtn.addEventListener("click", toggleScheduler);
 els.voiceSelect.addEventListener("change", (event) => {
+  if (eleven.enabled) {
+    eleven.agentVoice = event.target.value; // an ElevenLabs voice id
+    return;
+  }
   const chosen = voiceEngine.voices.find((v) => v.name === event.target.value);
   if (chosen) voiceEngine.agent = chosen;
   voiceEngine.customer = voiceEngine.voices.find((v) => v.name !== voiceEngine.agent.name) || voiceEngine.agent;
@@ -1003,7 +1078,8 @@ els.opportunitiesBody.addEventListener("click", (event) => {
   if (row && row.dataset.expand) toggleExpand(row.dataset.expand);
 });
 
-loadVoices(); // voices may already be available; onvoiceschanged refines later
+loadVoices(); // browser fallback voices; onvoiceschanged refines later
+loadElevenConfig(); // prefer ElevenLabs when the server has a key
 Promise.all([loadConfig(), loadOpportunities(), loadScheduler()])
   .then(loadMetrics)
   .catch((error) => toast(error.message, "error"));
